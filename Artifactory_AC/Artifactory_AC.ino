@@ -21,9 +21,10 @@
 #define acStateThreshold 100  // Minimum ADC value for the acStatePin to be considered ON
 #define timerValue 60         // Time (in minutes) for the default timeout
 
-boolean acIsOn = false;
-unsigned long acStartTime;
-unsigned long acStopTime;
+boolean acIsOn = false;           // AC is turned ON
+boolean acWaitingOff = false;     // AC has been sent the turn off signal
+unsigned long acStartTime;        // Time the AC was turned on in millis epoch
+static unsigned long acStopTime;  // Time the AC will timeout in millis epoch
 
 void setup ()
 {
@@ -40,6 +41,22 @@ void loop()
   {
     acStartTime = millis();
     acStopTime = millis() + ( ( timerValue * 60 ) * 1000 );
+  }
+  
+  // If the air con has just been turned off
+  if ( ( acStateVal < acStateThreshold ) && ( acIsOn ) )
+  {
+    acWaitingOff = false;
+    acIsOn = false;
+  }
+  
+  // If the timer has expired
+  if ( ( (long)( millis() - acStopTime ) >= 0 ) && ( !acWaitingOff ))
+  {
+    acWaitingOff = true;
+    digitalWrite(acSwitchPin, HIGH);
+    delay(500);
+    digitalWrite(acSwitchPin, LOW);
   }
 }
 
