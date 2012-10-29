@@ -16,16 +16,20 @@
 *  Daniel Harmsworth, 2012                               *
 *********************************************************/
 
-#define acSwitchPin 13        // Pin driving the relay to control the A/C power switch
-#define acStatePin A0         // Pin connected to the A/C Power LED
-#define uiButtonPin 10        // Pin connected to the input button
+#include <LiquidCrystal.h>
 
-#define acStateThreshold 100  // Minimum ADC value for the acStatePin to be considered ON
+#define acSwitchPin 13        // Pin driving the relay to control the A/C power switch
+#define acStatePin 9          // Pin connected to the A/C Power LED optocoupler
+#define uiButtonPin 8        // Pin connected to the input button
+#define backlightPin 6
+
+#define acStateThreshold 400  // Minimum ADC value for the acStatePin to be considered ON
 #define timerValue 60         // Time (in minutes) for the default timeout
 #define timerIncrement 10     // Time (in minutes) to increment the timer on button press
 #define timerMax 120          // Maximum time (in minutes) allowed to be on the timer
 
-#define buttonDebounce 10     // Time (in milliseconds) for debouncing the input button
+#define buttonDebounce 1000     // Time (in milliseconds) for debouncing the input button
+#define lcdUpdate 1000        // Time (in milliseconds) between LCD updates
 
 boolean acIsOn = false;               // AC is turned ON
 boolean acWaitingOff = false;         // AC has been sent the turn off signal
@@ -38,40 +42,56 @@ static unsigned long timerIncrementMillis;
 
 static unsigned long uiButtonDeb = 0; // Used to store the expiry time in millis epoch for the button debounce timer
 
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+static unsigned long lcdNextUpdate;
 
 void setup ()
 {
   pinMode(acSwitchPin, OUTPUT);
   pinMode(acStatePin, INPUT);
   pinMode(uiButtonPin, INPUT);
-  acTimeMax = ( timerMax * 60 ) * 1000;
-  timerIncrementMillis = ( timerIncrement * 60 ) * 1000;
+  //pinMode(backlightPin, OUTPUT);
+  Serial.begin(9600);
+  
+  acTimeMax = timerMax * 60000;
+  timerIncrementMillis = timerIncrement * 60000;
+  
+  lcd.begin(16, 2);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Status: ");
+  
+  //digitalWrite(acSwitchPin, LOW);
 }
 
 void loop()
 {
-  int acStateVal = analogRead(acStatePin);
   
   if ( acIsOn )
   {
     acTimeLeft = (long)( acStopTime - millis() );
   }
-  
-  // If the air con has just been turned on
-  if ( ( acStateVal >= acStateThreshold ) && ( !acIsOn ) )
+  else
   {
-    acStopTime = millis() + ( ( timerValue * 60 ) * 1000 );
+    analogWrite(backlightPin, 0);
+  }
+  // If the air con has just been turned on
+  if ( ( digitalRead(acStatePin) == HIGH ) && ( !acIsOn ) )
+  {
+    acStopTime = millis() + ( timerValue * 60000 );
+    acIsOn = true;
+    digitalWrite(backlightPin, HIGH);
   }
   
   // If the air con has just been turned off
-  if ( ( acStateVal < acStateThreshold ) && ( acIsOn ) )
+  if ( ( digitalRead(acStatePin) == LOW)  && ( acIsOn ) )
   {
     acWaitingOff = false;
     acIsOn = false;
   }
   
   // If the timer has expired
-  if ( ( (long)( millis() - acStopTime ) >= 0 ) && ( !acWaitingOff ))
+  if ( ( (long)( millis() - acStopTime ) >= 0 ) && ( !acWaitingOff ) && ( acIsOn) )
   {
     acWaitingOff = true;
     digitalWrite(acSwitchPin, HIGH);
@@ -79,9 +99,11 @@ void loop()
     digitalWrite(acSwitchPin, LOW);
   }
   
+  // If the button is pressed whilst the timer is running
   if ( ( (long)( millis() - uiButtonDeb ) >= 0 ) && ( digitalRead(uiButtonPin) == HIGH ) && ( acIsOn ) )
   {
-    uiButtonDeb = millis();
+    uiButtonDeb = millis() + buttonDebounce;
+    Serial.println("Button Press");
     if ( ( acTimeLeft + timerIncrementMillis ) <= acTimeMax )
     {
       acStopTime += timerIncrementMillis;
@@ -91,5 +113,33 @@ void loop()
       acStopTime = millis() + ( acTimeMax );
     }
   }
+  
+  // LCD Stuff
+  if ( (long)( millis() - lcdNextUpdate ) >= 0 )
+  {
+    char l2[16] = "               ";
+    lcdNextUpdate += lcdUpdate;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("System: ");
+    if ( acIsOn ) { lcd.print("On "); } else { lcd.print("Off"); }
+    
+    lcd.setCursor(0, 1);
+    
+    if ( acIsOn )
+    {
+      //lcd.print(acTimeLeft);
+      int mins = acTimeLeft / 60000;
+      int secs = ( acTimeLeft / 1000 ) % 60;
+      sprintf(l2,"%02d:%02d Left", mins, secs);
+      lcd.print( l2 );
+    }
+    else
+    {
+      //lcd.print(acStateVal);
+      lcd.print("System Is Off");
+    }
+  }
+  
 }
 
